@@ -3,40 +3,12 @@ package encoding
 import (
 	"encoding/binary"
 	"errors"
+	"image"
 	"image/png"
 	"os"
 
 	go_qr "github.com/piglig/go-qr"
 )
-
-// 0 - version
-// 1-4 fileID
-// 5-8 totalLength of file
-// 9-10 totalChunks
-// 11-12 chunkIndex
-// maxNameSize bytes for the name of the file
-// data
-// 4 bytes checksum
-type File struct {
-	codes     []QR
-	name      string
-	length    int // length of fi
-	completed bool
-	started   bool
-}
-
-func decodeFile() {
-	file := File{
-		started:   false,
-		completed: false,
-	}
-
-	channel := make(chan QR)
-	curr := <-channel
-	for file.completed == false {
-
-	}
-}
 
 type QR struct {
 	id          uint32
@@ -47,8 +19,8 @@ type QR struct {
 	data        []byte
 }
 
-func decodeQR(path string, chan ) (QR, error) {
-	rawData, err := decodeQRBytes(path)
+func decodeQRPath(path string) (QR, error) {
+	rawData, err := decodeQRBytesPath(path)
 	if err != nil {
 		return QR{}, err
 	}
@@ -63,7 +35,25 @@ func decodeQR(path string, chan ) (QR, error) {
 	path := homeDir + "Qaread" + seperator + "output" + seperator + string(id) + seperator + "frame" + "(" + string(i) + ")" + ".png"*/
 }
 
-func decodeQRBytes(path string) ([]byte, error) {
+func decodeQRImg(image image.Image) (QR, error) {
+	rawData, err := decodeQRBytesImg(image)
+	if err != nil {
+		return QR{}, err
+	}
+
+	return unwrapBytes(rawData)
+}
+
+func decodeQRBytesImg(image image.Image) ([]byte, error) {
+	text, err := go_qr.Decode(image)
+	if err != nil {
+		return nil, err
+	}
+
+	return []byte(text), nil
+}
+
+func decodeQRBytesPath(path string) ([]byte, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err

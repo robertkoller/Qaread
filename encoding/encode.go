@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"os"
+	"path/filepath"
+	"strconv"
 
 	"math/rand"
 	"unicode/utf8"
@@ -15,13 +17,20 @@ const payloadSize = 800
 const versionByte = 0x01
 const maxNameSize = 25
 
-// takes data bytes and encodes it
-func mainEncode(data []byte, name string) error {
+// takes data bytes and encodes it, writing the frames to outputDirectory
+func mainEncode(data []byte, name string, outputDirectory string) error {
 	chunked := chunker(data)
 
 	id := rand.Uint32()
 	length := uint32(len(data))
 	chunks := uint16(len(chunked))
+
+	// os.Create won't make missing folders so we make the frame folder up front
+	frameDirectory := filepath.Join(outputDirectory, strconv.FormatUint(uint64(id), 10))
+	err := os.MkdirAll(frameDirectory, 0755)
+	if err != nil {
+		return err
+	}
 
 	for i, chunk := range chunked {
 		headed := attachHeader(chunk, i, length, chunks, id, name)
@@ -34,14 +43,7 @@ func mainEncode(data []byte, name string) error {
 
 		config := goQR.NewQrCodeImgConfig(10, 4)
 
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-
-		seperator := string(os.PathSeparator)
-
-		path := homeDir + "Qaread" + seperator + "input" + seperator + string(id) + seperator + "frame" + "(" + string(i) + ")" + ".png"
+		path := filepath.Join(frameDirectory, "frame("+strconv.Itoa(i)+").png")
 
 		err = code.PNG(config, path)
 		if err != nil {
