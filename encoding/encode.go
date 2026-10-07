@@ -3,6 +3,8 @@ package encoding
 import (
 	"encoding/binary"
 	"hash/crc32"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +18,13 @@ import (
 const payloadSize = 800
 const versionByte = 0x01
 const maxNameSize = 25
+
+// pixels per QR module and the quiet zone width in modules around the code
+const frameScale = 10
+const frameBorder = 4
+
+// BestSpeed is fine here since a black and white image compresses well at any level
+var framePNGEncoder = png.Encoder{CompressionLevel: png.BestSpeed}
 
 // takes data bytes and encodes it, writing the frames to outputDirectory
 func mainEncode(data []byte, name string, outputDirectory string) error {
@@ -41,11 +50,9 @@ func mainEncode(data []byte, name string, outputDirectory string) error {
 			return err
 		}
 
-		config := goQR.NewQrCodeImgConfig(10, 4)
-
 		path := filepath.Join(frameDirectory, "frame("+strconv.Itoa(i)+").png")
 
-		err = code.PNG(config, path)
+		err = writeFramePNG(renderFrame(code, frameScale, frameBorder), path)
 		if err != nil {
 			return err
 		}
@@ -53,6 +60,51 @@ func mainEncode(data []byte, name string, outputDirectory string) error {
 
 	return nil
 
+}
+
+// renderFrame draws the QR code into a grayscale image by writing pixels directly.
+// go-qr's ToImage sets one pixel at a time and allocates for each one which made it about 50x slower.
+// We use Gray because go-qr's decoder has a fast path for it, Paletted made decoding nearly 3x slower
+func renderFrame(code *goQR.QrCode, scale int, border int) *image.Gray {
+	modulesPerSide := code.Size() + border*2
+	pixelsPerSide := modulesPerSide * scale
+	frame := image.NewGray(image.Rect(0, 0, pixelsPerSide, pixelsPerSide))
+
+	// start fully white so we only need to paint the dark modules
+	for index := range frame.Pix {
+		frame.Pix[index] = 255
+	}
+	for moduleY := 0; moduleY < modulesPerSide; moduleY++ {
+		for moduleX := 0; moduleX < modulesPerSide; moduleX++ {
+			if !code.Module(moduleX-border, moduleY-border) {
+				continue
+			}
+			for pixelY := moduleY * scale; pixelY < (moduleY+1)*scale; pixelY++ {
+				row := frame.Pix[pixelY*frame.Stride:]
+				for pixelX := moduleX * scale; pixelX < (moduleX+1)*scale; pixelX++ {
+					row[pixelX] = 0
+				}
+			}
+		}
+	}
+
+	return frame
+}
+
+func writeFramePNG(frame image.Image, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+
+	err = framePNGEncoder.Encode(file, frame)
+	if err != nil {
+		file.Close()
+		return err
+	}
+
+	// Close can report a failed write so we don't just defer it
+	return file.Close()
 }
 
 // 0 - version
@@ -95,7 +147,8 @@ func createNameBuffer(name string, maxBytes int) []byte {
 	}
 
 	b := []byte(name[:maxBytes])
-	for !utf8.Valid(b) && len(b) > maxBytes {
+	// cutting at maxBytes can split a multi byte character so we back off until it's valid again
+	for !utf8.Valid(b) && len(b) > 0 {
 		b = b[:len(b)-1]
 	}
 	return b

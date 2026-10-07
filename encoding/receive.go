@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"image"
+	"sync"
 )
 
 type File struct {
@@ -13,6 +14,7 @@ type File struct {
 	count       uint16
 	name        string
 	started     bool
+	lock        sync.Mutex
 }
 
 // receiveFrames waits for images to come in on frames and decodes each one until every chunk of the file has arrived

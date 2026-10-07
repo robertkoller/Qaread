@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"image"
@@ -58,8 +59,12 @@ func decodeQRBytesPath(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 
-	img, _ := png.Decode(file)
+	img, err := png.Decode(file)
+	if err != nil {
+		return nil, err
+	}
 	text, err := go_qr.Decode(img)
 	if err != nil {
 		return nil, err
@@ -78,11 +83,12 @@ func decodeQRBytesPath(path string) ([]byte, error) {
 // 4 bytes checksum
 
 func unwrapBytes(data []byte) (QR, error) {
-	if len(data) < 17 {
+	// header plus the 4 byte checksum, anything shorter would panic on the slicing below
+	if len(data) < 13+maxNameSize+4 {
 		return QR{}, errors.New("Bytes aren't long enough, payload probably broken")
 	}
 
-	if checksum(data[:(len(data)-4)]) != binary.BigEndian.Uint32(data[:(len(data)-4)]) {
+	if checksum(data[:(len(data)-4)]) != binary.BigEndian.Uint32(data[len(data)-4:]) {
 		return QR{}, errors.New("Invalid byte buffer checksum")
 	}
 
@@ -90,7 +96,8 @@ func unwrapBytes(data []byte) (QR, error) {
 	length := binary.BigEndian.Uint32(data[5:])
 	totalChunks := binary.BigEndian.Uint16(data[9:])
 	chunkIndex := binary.BigEndian.Uint16(data[11:])
-	name := string(data[13:maxNameSize])
+	// the name field is fixed width so short names come with zero padding we need to drop
+	name := string(bytes.TrimRight(data[13:13+maxNameSize], "\x00"))
 	output := data[13+maxNameSize : len(data)-4]
 
 	return QR{
